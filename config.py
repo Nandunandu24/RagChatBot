@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     
     # RAG Search Settings
     TOP_K_RETRIEVAL: int = 6
-    CHUNK_SIZE: int = 700
-    CHUNK_OVERLAP: int = 120
+    CHUNK_SIZE: int = 1200
+    CHUNK_OVERLAP: int = 250
 
     class Config:
         env_file = str(BASE_DIR / ".env")
