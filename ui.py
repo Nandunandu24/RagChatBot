@@ -1,9 +1,6 @@
 import streamlit as st
-import requests
-import os
 import importlib
 import rag_graph
-from rag_graph import run_rag_pipeline
 from config import settings
 
 # Page Configuration
@@ -14,42 +11,32 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Premium Design
+# Custom CSS for Sleek Dark Glassmorphism Design
 st.markdown("""
 <style>
-    /* Dark glassmorphism theme */
     .main {
         background-color: #0e1117;
     }
     .stAppHeader {
         background: rgba(14, 17, 23, 0.8);
     }
-    .metric-card {
-        background: rgba(255, 255, 255, 0.05);
+    .chat-badge {
+        display: inline-block;
+        padding: 4px 10px;
         border-radius: 12px;
-        padding: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        text-align: center;
-        margin-bottom: 20px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        margin-bottom: 8px;
     }
-    .metric-value {
-        font-size: 2.2rem;
-        font-weight: 700;
+    .badge-grounded {
+        background-color: rgba(76, 175, 80, 0.15);
         color: #4CAF50;
+        border: 1px solid #4CAF50;
     }
-    .metric-label {
-        font-size: 0.9rem;
-        color: #888888;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    .context-box {
-        background: #1a1f2c;
-        border-left: 4px solid #4a90e2;
-        padding: 12px 16px;
-        border-radius: 6px;
-        margin-bottom: 12px;
-        font-size: 0.95rem;
+    .badge-insufficient {
+        background-color: rgba(255, 152, 0, 0.15);
+        color: #FF9800;
+        border: 1px solid #FF9800;
     }
     .badge-page {
         background-color: #2b3a4a;
@@ -67,8 +54,24 @@ st.markdown("""
         font-size: 0.8rem;
         font-weight: 600;
     }
+    .stChatMessage {
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# Initialize Session State
+if "messages" not in st.session_state:
+    st.session_state["messages"] = [
+        {
+            "role": "assistant",
+            "content": "Hello! I am your **Agentic AI Assistant**, strictly grounded in the **[Agentic AI eBook](https://konverge.ai/pdf/Ebook-Agentic-AI.pdf)**. \n\nAsk me anything about Agentic AI architectures, Multi-Agent Systems, or organizational readiness!",
+            "confidence": 1.0,
+            "chunks": []
+        }
+    ]
 
 # Sidebar
 with st.sidebar:
@@ -83,17 +86,18 @@ with st.sidebar:
     st.markdown(f"**Embeddings:** `{settings.EMBEDDING_MODEL_NAME}`")
     st.markdown(f"**Vector DB:** `{settings.VECTOR_DB_TYPE.upper()}`")
     st.markdown(f"**LLM:** `{settings.GEMINI_MODEL}`")
+    st.markdown(f"**Top-K Chunks:** `{settings.TOP_K_RETRIEVAL}`")
     
     st.divider()
     
-    st.subheader("💡 Sample Queries")
+    st.subheader("💡 Sample Questions")
     sample_queries = [
         "What is Agentic AI according to the ebook?",
+        "What are the types of agents based on functional versatility?",
         "What are the main components of an Anatomy of an Agentic AI System?",
         "How do Multi-Agent Systems orchestrate decision making?",
         "What is the difference between traditional automation and Agentic AI?",
-        "What factors determine an organization's readiness for Agentic AI?",
-        "Who wrote or published this Agentic AI eBook?"
+        "What factors determine an organization's readiness for Agentic AI?"
     ]
     
     selected_sample = None
@@ -101,87 +105,105 @@ with st.sidebar:
         if st.button(f"👉 {q}", use_container_width=True, key=f"btn_{hash(q)}"):
             selected_sample = q
 
-# Main Title & Subtitle
-st.title("🤖 Agentic AI eBook Chatbot")
-st.markdown("Ask questions strictly answered by the **[Agentic AI eBook](https://konverge.ai/pdf/Ebook-Agentic-AI.pdf)** knowledge base.")
+    st.divider()
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
+        st.session_state["messages"] = [
+            {
+                "role": "assistant",
+                "content": "Chat history cleared! How can I assist you with the Agentic AI eBook?",
+                "confidence": 1.0,
+                "chunks": []
+            }
+        ]
+        st.rerun()
+
+# Main Interface Title
+st.title("💬 Agentic AI Interactive Chat")
+st.caption("A conversational RAG assistant providing answers strictly grounded in `Ebook-Agentic-AI.pdf`.")
 
 st.divider()
 
-# Session state for query
-if "user_query" not in st.session_state:
-    st.session_state["user_query"] = ""
+# Display Chat History
+for msg in st.session_state["messages"]:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        
+        # Display metadata for assistant messages
+        if msg["role"] == "assistant" and "confidence" in msg and msg.get("chunks"):
+            confidence = msg.get("confidence", 0.0)
+            conf_pct = int(confidence * 100)
+            is_grounded = "insufficient information" not in msg["content"].lower()
+            
+            badge_class = "badge-grounded" if is_grounded else "badge-insufficient"
+            status_label = f"✅ Grounded ({conf_pct}% Confidence)" if is_grounded else f"⚠️ Insufficient Context ({conf_pct}%)"
+            
+            st.markdown(f"<div class='chat-badge {badge_class}'>{status_label}</div>", unsafe_allow_html=True)
+            
+            chunks = msg.get("chunks", [])
+            with st.expander(f"📚 View Retrieved Context ({len(chunks)} Chunks)"):
+                for i, chunk in enumerate(chunks):
+                    score = chunk.get("score", 0.0)
+                    page = chunk.get("metadata", {}).get("page_number", "N/A")
+                    text = chunk.get("text", "")
+                    st.markdown(f"<span class='badge-page'>Page {page}</span> <span class='badge-score'>Similarity: {score:.4f}</span>", unsafe_allow_html=True)
+                    st.markdown(f"```text\n{text}\n```")
+
+# Determine prompt input (chat_input or sidebar sample button)
+user_prompt = st.chat_input("Ask a question about Agentic AI...")
 
 if selected_sample:
-    st.session_state["user_query"] = selected_sample
+    user_prompt = selected_sample
 
-# Input area
-user_input = st.text_input("Enter your question:", value=st.session_state["user_query"], placeholder="e.g. What is Agentic AI according to the book?")
+# Handle New User Message
+if user_prompt:
+    # 1. Render User Message
+    st.session_state["messages"].append({"role": "user", "content": user_prompt})
+    with st.chat_message("user"):
+        st.markdown(user_prompt)
 
-if st.button("🚀 Submit Question", type="primary", use_container_width=True) or (user_input and selected_sample):
-    if not user_input.strip():
-        st.warning("Please enter a valid question.")
-    else:
-        with st.spinner("Retrieving context from HuggingFace embeddings & synthesizing answer via Gemini..."):
+    # 2. Render Assistant Response
+    with st.chat_message("assistant"):
+        with st.spinner("Analyzing eBook context & generating grounded answer..."):
             try:
                 importlib.reload(rag_graph)
-                response_data = rag_graph.run_rag_pipeline(user_input)
+                response_data = rag_graph.run_rag_pipeline(user_prompt)
                 
                 final_answer = response_data.get("final_answer", "")
-                chunks = response_data.get("retrieved_context_chunks", [])
                 confidence = response_data.get("confidence_score", 0.0)
+                chunks = response_data.get("retrieved_context_chunks", [])
                 
-                # Metrics Row
-                col1, col2, col3 = st.columns([1, 1, 2])
+                st.markdown(final_answer)
                 
-                with col1:
-                    conf_pct = int(confidence * 100)
-                    color = "#4CAF50" if conf_pct >= 70 else ("#FF9800" if conf_pct >= 40 else "#F44336")
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-value" style="color: {color}">{conf_pct}%</div>
-                        <div class="metric-label">Confidence Score</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                with col2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-value" style="color: #64b5f6">{len(chunks)}</div>
-                        <div class="metric-label">Chunks Retrieved</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                with col3:
-                    is_grounded = "insufficient information" not in final_answer.lower()
-                    status_text = "✅ Strictly Grounded in eBook" if is_grounded else "⚠️ Insufficient Context in eBook"
-                    status_color = "#4CAF50" if is_grounded else "#FF9800"
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-value" style="color: {status_color}; font-size: 1.4rem;">{status_text}</div>
-                        <div class="metric-label">Grounding Verification</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                conf_pct = int(confidence * 100)
+                is_grounded = "insufficient information" not in final_answer.lower()
+                badge_class = "badge-grounded" if is_grounded else "badge-insufficient"
+                status_label = f"✅ Grounded ({conf_pct}% Confidence)" if is_grounded else f"⚠️ Insufficient Context ({conf_pct}%)"
                 
-                # Answer Box
-                st.subheader("💬 Final Answer")
-                st.markdown(f"> {final_answer}")
+                st.markdown(f"<div class='chat-badge {badge_class}'>{status_label}</div>", unsafe_allow_html=True)
                 
-                st.divider()
-                
-                # Retrieved Chunks Accordion
-                st.subheader("📚 Retrieved Context Chunks")
-                if not chunks:
-                    st.info("No matching context chunks found in the vector store.")
-                else:
-                    for i, chunk in enumerate(chunks):
-                        score = chunk.get("score", 0.0)
-                        page = chunk.get("metadata", {}).get("page_number", "N/A")
-                        chunk_id = chunk.get("metadata", {}).get("chunk_id", f"chunk_{i+1}")
-                        text = chunk.get("text", "")
-                        
-                        with st.expander(f"Chunk {i+1} — Page {page} (Relevance Score: {score:.2f})"):
+                if chunks:
+                    with st.expander(f"📚 View Retrieved Context ({len(chunks)} Chunks)"):
+                        for i, chunk in enumerate(chunks):
+                            score = chunk.get("score", 0.0)
+                            page = chunk.get("metadata", {}).get("page_number", "N/A")
+                            text = chunk.get("text", "")
                             st.markdown(f"<span class='badge-page'>Page {page}</span> <span class='badge-score'>Similarity: {score:.4f}</span>", unsafe_allow_html=True)
                             st.markdown(f"```text\n{text}\n```")
-                            
+                
+                # Append Assistant Message to History
+                st.session_state["messages"].append({
+                    "role": "assistant",
+                    "content": final_answer,
+                    "confidence": confidence,
+                    "chunks": chunks
+                })
+                
             except Exception as e:
-                st.error(f"Error executing RAG pipeline: {str(e)}")
+                error_msg = f"Error processing request: {str(e)}"
+                st.error(error_msg)
+                st.session_state["messages"].append({
+                    "role": "assistant",
+                    "content": error_msg,
+                    "confidence": 0.0,
+                    "chunks": []
+                })
