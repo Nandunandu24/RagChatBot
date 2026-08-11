@@ -1,0 +1,29 @@
+# Python virtual environment
+venv/
+env/
+ENV/
+.venv
+
+# Environment & Secrets
+.env
+
+# Vector Stores & Data Caches
+chroma_db/
+.chroma/
+Ebook-Agentic-AI.pdf
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
