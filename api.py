@@ -1,19 +1,18 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
+from typing import List, Dict, Any
 
 from config import settings
 from rag_graph import run_rag_pipeline
 from ingest import run_ingestion
 
 app = FastAPI(
-    title="Agentic AI RAG Chatbot API",
-    description="RAG Chatbot using LangGraph, Google Gemini, HuggingFace Embeddings, and Pinecone/ChromaDB strictly grounded in the Agentic AI eBook.",
+    title="Agentic AI RAG API",
+    description="FastAPI service for RAG chatbot grounded in Ebook-Agentic-AI.pdf",
     version="1.0.0"
 )
 
-# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +22,7 @@ app.add_middleware(
 )
 
 class ChatRequest(BaseModel):
-    query: str = Field(..., example="What is Agentic AI according to the book?", description="User query to answer from eBook context.")
+    query: str
 
 class ContextChunk(BaseModel):
     text: str
@@ -43,11 +42,11 @@ class IngestResponse(BaseModel):
 
 SAMPLE_QUERIES = [
     "What is Agentic AI according to the ebook?",
+    "What are the types of agents based on functional versatility?",
     "What are the main components of an Anatomy of an Agentic AI System?",
     "How do Multi-Agent Systems orchestrate decision making?",
     "What is the difference between traditional automation and Agentic AI?",
-    "What factors determine an organization's readiness for Agentic AI?",
-    "Who wrote or published this Agentic AI eBook?"
+    "What factors determine an organization's readiness for Agentic AI?"
 ]
 
 @app.get("/", tags=["Health"])
@@ -63,13 +62,6 @@ def health_check():
 
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 def chat_endpoint(request: ChatRequest):
-    """
-    Primary RAG Chat Endpoint.
-    Accepts a user query, executes the LangGraph RAG pipeline, and returns:
-    - final_answer
-    - retrieved_context_chunks
-    - confidence_score
-    """
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query string cannot be empty.")
     
@@ -77,11 +69,10 @@ def chat_endpoint(request: ChatRequest):
         result = run_rag_pipeline(request.query)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"RAG Pipeline error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"RAG pipeline error: {str(e)}")
 
 @app.post("/ingest", response_model=IngestResponse, tags=["Ingestion"])
 def ingest_endpoint(force_reingest: bool = False):
-    """Triggers PDF download, chunking, HuggingFace embedding generation, and vector DB storage."""
     try:
         count = run_ingestion(force_reingest=force_reingest)
         return IngestResponse(
@@ -94,7 +85,6 @@ def ingest_endpoint(force_reingest: bool = False):
 
 @app.get("/sample-queries", tags=["Sample Queries"])
 def get_sample_queries():
-    """Returns pre-configured sample queries for evaluating the chatbot."""
     return {"sample_queries": SAMPLE_QUERIES}
 
 if __name__ == "__main__":
